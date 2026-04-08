@@ -44,6 +44,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Authentication state
   let currentUser = null;
 
+  // Duration (ms) for the highlight animation when opening a shared activity link
+  const HIGHLIGHT_DURATION_MS = 3000;
+
   // Time range mappings for the dropdown
   const timeRanges = {
     morning: { start: "06:00", end: "08:00" }, // Before school hours
@@ -470,6 +473,88 @@ document.addEventListener("DOMContentLoaded", () => {
     Object.entries(filteredActivities).forEach(([name, details]) => {
       renderActivityCard(name, details);
     });
+
+    // Highlight activity from URL if present
+    highlightActivityFromUrl();
+  }
+
+  // Build a shareable URL for an activity
+  function getActivityShareUrl(activityName) {
+    const url = new URL(window.location.href);
+    url.search = "";
+    url.searchParams.set("activity", activityName);
+    return url.toString();
+  }
+
+  // Build the share text for an activity
+  function getShareText(name, details) {
+    return `Check out "${name}" at Mergington High School! ${details.description} Schedule: ${formatSchedule(details)}`;
+  }
+
+  // Copy text to clipboard and show feedback
+  function copyToClipboard(text, dropdownEl) {
+    navigator.clipboard.writeText(text).then(() => {
+      showMessage("Link copied to clipboard!", "success");
+      dropdownEl.classList.add("hidden");
+    }).catch(() => {
+      showMessage("Could not copy link. Please copy it manually.", "error");
+    });
+  }
+
+  // Share an activity using the Web Share API on mobile, or show a dropdown on desktop
+  function shareActivity(name, details, dropdownEl) {
+    const shareUrl = getActivityShareUrl(name);
+    const shareText = getShareText(name, details);
+
+    if (navigator.share) {
+      navigator.share({ title: name, text: shareText, url: shareUrl })
+        .catch((error) => {
+          // User cancelled or share failed — fall back to dropdown
+          if (error.name !== "AbortError") {
+            toggleShareDropdown(dropdownEl);
+          }
+        });
+    } else {
+      toggleShareDropdown(dropdownEl);
+    }
+  }
+
+  // Toggle the share dropdown visibility, closing any other open dropdowns first
+  function toggleShareDropdown(dropdownEl) {
+    const isHidden = dropdownEl.classList.contains("hidden");
+
+    // Close all open dropdowns
+    document.querySelectorAll(".share-dropdown").forEach((el) => {
+      el.classList.add("hidden");
+    });
+
+    if (isHidden) {
+      dropdownEl.classList.remove("hidden");
+    }
+  }
+
+  // Close share dropdowns when clicking elsewhere on the page
+  document.addEventListener("click", () => {
+    document.querySelectorAll(".share-dropdown").forEach((el) => {
+      el.classList.add("hidden");
+    });
+  });
+
+  // Highlight activity card if ?activity= parameter is present in the URL
+  function highlightActivityFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const activityName = params.get("activity");
+    if (!activityName) return;
+
+    const cards = document.querySelectorAll(".activity-card");
+    cards.forEach((card) => {
+      const heading = card.querySelector("h4");
+      if (heading && heading.textContent.trim() === activityName) {
+        card.classList.add("activity-highlight");
+        card.scrollIntoView({ behavior: "smooth", block: "center" });
+        setTimeout(() => card.classList.remove("activity-highlight"), HIGHLIGHT_DURATION_MS);
+      }
+    });
   }
 
   // Function to render a single activity card
@@ -568,6 +653,16 @@ document.addEventListener("DOMContentLoaded", () => {
           </div>
         `
         }
+        <div class="share-container">
+          <button class="share-button" data-activity="${name}" aria-label="Share this activity">
+            🔗 Share
+          </button>
+          <div class="share-dropdown hidden">
+            <button class="share-option copy-link" data-activity="${name}">📋 Copy Link</button>
+            <a class="share-option whatsapp-share" href="#" target="_blank" rel="noopener noreferrer">💬 WhatsApp</a>
+            <a class="share-option email-share" href="#" target="_blank">✉️ Email</a>
+          </div>
+        </div>
       </div>
     `;
 
@@ -586,6 +681,28 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
     }
+
+    // Add share button functionality
+    const shareButton = activityCard.querySelector(".share-button");
+    const shareDropdown = activityCard.querySelector(".share-dropdown");
+    shareButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      shareActivity(name, details, shareDropdown);
+    });
+
+    // Set up share option links
+    const shareUrl = getActivityShareUrl(name);
+    const shareText = getShareText(name, details);
+
+    activityCard.querySelector(".copy-link").addEventListener("click", (event) => {
+      event.stopPropagation();
+      copyToClipboard(shareUrl, shareDropdown);
+    });
+
+    activityCard.querySelector(".whatsapp-share").href =
+      `https://wa.me/?text=${encodeURIComponent(shareText + "\n" + shareUrl)}`;
+    activityCard.querySelector(".email-share").href =
+      `mailto:?subject=${encodeURIComponent('Join "' + name + '" at Mergington High School')}&body=${encodeURIComponent(shareText + "\n\n" + shareUrl)}`;
 
     activitiesList.appendChild(activityCard);
   }
